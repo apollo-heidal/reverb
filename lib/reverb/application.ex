@@ -15,7 +15,20 @@ defmodule Reverb.Application do
     Supervisor.start_link(children, opts)
   end
 
-  defp base_children(:receiver), do: [Reverb.Repo]
+  defp base_children(:receiver) do
+    pubsub = Application.get_env(:reverb, :pubsub_name)
+    start_pubsub? = Application.get_env(:reverb, :start_pubsub, false)
+
+    pubsub_child =
+      if pubsub && start_pubsub? do
+        Logger.info("[Reverb] Starting PubSub #{inspect(pubsub)} (standalone receiver)")
+        [{Phoenix.PubSub, name: pubsub}]
+      else
+        []
+      end
+
+    pubsub_child ++ [Reverb.Repo]
+  end
 
   defp base_children(_) do
     # In test, always start Repo for sandbox/migration support

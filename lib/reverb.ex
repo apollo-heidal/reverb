@@ -80,4 +80,77 @@ defmodule Reverb do
       do: Reverb.Agent.Loop.resume(),
       else: {:error, :not_running}
   end
+
+  @doc "Lists recent tasks for steering and inspection."
+  def tasks(opts \\ []) do
+    Reverb.Tasks.list_recent(opts)
+  end
+
+  @doc "Returns a task by id."
+  def get_task(id) do
+    Reverb.Tasks.get_task(id)
+  end
+
+  @doc "Lists recent runs."
+  def runs(opts \\ []) do
+    Reverb.Runs.list_recent(opts)
+  end
+
+  @doc "Returns a run by id."
+  def get_run(id) do
+    Reverb.Runs.get_run(id)
+  end
+
+  @doc "Creates a manual task."
+  def create_manual_task(attrs) when is_map(attrs) do
+    attrs =
+      attrs
+      |> Map.put_new(:source_kind, "manual")
+      |> Map.put_new(:category, "manual")
+
+    Reverb.Tasks.create_task(attrs)
+  end
+
+  @doc "Updates a task's priority."
+  def reprioritize_task(id, priority) when is_integer(priority) do
+    with %Reverb.Tasks.Task{} = task <- Reverb.Tasks.get_task(id) do
+      Reverb.Tasks.update_task(task, %{priority: priority})
+    else
+      nil -> {:error, :not_found}
+    end
+  end
+
+  @doc "Updates steering notes for a task."
+  def update_task_notes(id, notes) when is_binary(notes) do
+    with %Reverb.Tasks.Task{} = task <- Reverb.Tasks.get_task(id) do
+      Reverb.Tasks.update_task(task, %{steering_notes: notes})
+    else
+      nil -> {:error, :not_found}
+    end
+  end
+
+  @doc "Retries a failed or stalled task by resetting it to the queue."
+  def retry_task(id) do
+    with %Reverb.Tasks.Task{} = task <- Reverb.Tasks.get_task(id) do
+      Reverb.Tasks.reset_for_retry(task)
+    else
+      nil -> {:error, :not_found}
+    end
+  end
+
+  @doc "Cancels a task."
+  def cancel_task(id) do
+    with %Reverb.Tasks.Task{} = task <- Reverb.Tasks.get_task(id) do
+      Reverb.Tasks.cancel_task(task)
+    else
+      nil -> {:error, :not_found}
+    end
+  end
+
+  @doc "Returns worker slot status."
+  def agents_status do
+    if Process.whereis(Reverb.Agent.Loop),
+      do: Reverb.Agent.Loop.agents_status(),
+      else: []
+  end
 end

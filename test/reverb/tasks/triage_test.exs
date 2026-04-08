@@ -1,7 +1,7 @@
 defmodule Reverb.Tasks.TriageTest do
   use Reverb.DataCase, async: false
 
-  alias Reverb.{Message, Tasks, Tasks.Triage}
+  alias Reverb.{Message, Tasks.Triage}
 
   describe "process/1" do
     test "creates a task from a new message" do

@@ -7,6 +7,9 @@ defmodule Reverb.Agent.LoopTest do
   @failing_agent Path.expand("test/support/fixtures/failing_agent.sh")
 
   defp start_loop(overrides \\ []) do
+    workspace_root =
+      Path.join(System.tmp_dir!(), "reverb-loop-test-#{System.unique_integer([:positive])}")
+
     base = [
       enabled: true,
       boot_delay_ms: 100,
@@ -16,12 +19,21 @@ defmodule Reverb.Agent.LoopTest do
       max_consecutive_failures: 2,
       backoff_base_ms: 200,
       backoff_max_ms: 1_000,
+      project_root: File.cwd!(),
       agent_command: @fake_agent,
       agent_args: []
     ]
 
     config = Keyword.merge(base, overrides)
     Application.put_env(:reverb, Reverb.Agent, config)
+
+    Application.put_env(:reverb, Reverb.Workspaces,
+      root: workspace_root,
+      repo_root: File.cwd!(),
+      source_ref: "HEAD",
+      reclaim_on_boot: true
+    )
+
     start_supervised!(Loop)
   end
 

@@ -44,11 +44,14 @@ defmodule Reverb.Emitter.TelemetryHandler do
 
   @doc false
   def handle_event(event_name, measurements, metadata, _config) do
-    kind = if Map.has_key?(metadata, :kind) and metadata.kind == :error, do: :error, else: :telemetry
+    kind =
+      if Map.has_key?(metadata, :kind) and metadata.kind == :error, do: :error, else: :telemetry
 
     message_text = build_message(event_name, measurements, metadata)
     source = Enum.join(event_name, ".")
-    stacktrace = if Map.has_key?(metadata, :stacktrace), do: Exception.format_stacktrace(metadata.stacktrace)
+
+    stacktrace =
+      if Map.has_key?(metadata, :stacktrace), do: Exception.format_stacktrace(metadata.stacktrace)
 
     message =
       Message.new(kind, message_text,

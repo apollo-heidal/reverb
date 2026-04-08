@@ -1,0 +1,55 @@
+services:
+  reverb-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: reverb_dev
+    volumes:
+      - reverb_db_data:/var/lib/postgresql/data
+
+  reverb:
+    build:
+      context: .
+      dockerfile: docker/reverb.Dockerfile
+    depends_on:
+      - reverb-db
+    environment:
+      MIX_ENV: prod
+      REVERB_MODE: receiver
+      REVERB_START_PUBSUB: "true"
+      REVERB_DATABASE_URL: ecto://postgres:postgres@reverb-db/reverb_dev
+      REVERB_POOL_SIZE: "5"
+      REVERB_NODE_NAME: reverb@reverb
+      REVERB_ERLANG_COOKIE: reverb_demo_cookie
+      REVERB_PUBSUB_NAME: ReverbDemoApp.PubSub
+      REVERB_TOPIC_HASH: reverb-demo-app
+      REVERB_PROD_NODE: demo_prod@demo-prod
+      REVERB_ALLOWED_NODES: demo_prod@demo-prod
+      REVERB_AGENT_ADAPTER: generic
+      REVERB_AGENT_COMMAND: /opt/reverb/scripts/demo_agent.sh
+      REVERB_AGENT_MAX_AGENTS: "1"
+      REVERB_WORKSPACE_ROOT: /workspaces
+      REVERB_WORKSPACE_REPO_ROOT: /sandbox/reverb_demo_app
+      REVERB_VALIDATION_COMMANDS: mix compile;;mix test
+    volumes:
+      - reverb_workspaces:/workspaces
+      - reverb_demo_repo:/sandbox
+
+  demo-prod:
+    build:
+      context: .
+      dockerfile: docker/demo_app.Dockerfile
+    depends_on:
+      - reverb
+    environment:
+      MIX_ENV: prod
+      DEMO_NODE_NAME: demo_prod@demo-prod
+      REVERB_ERLANG_COOKIE: reverb_demo_cookie
+      REVERB_TOPIC_HASH: reverb-demo-app
+      DEMO_EMIT_INTERVAL_MS: "15000"
+
+volumes:
+  reverb_db_data:
+  reverb_workspaces:
+  reverb_demo_repo:

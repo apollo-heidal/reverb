@@ -1,0 +1,553 @@
+# Reverb Demo E2E, Installation, And Coordinator Hardening Plan
+
+## Purpose
+
+This plan defines the next implementation phase for `reverb` after the initial
+coordinator architecture refactor.
+
+The goals are:
+
+- prove the full emitter -> coordinator -> isolated dev workspace -> validation
+  loop end to end
+- avoid Apollo as a test target
+- make Reverb easy to add to a normal Elixir project
+- shift the default coding-agent strategy toward a single external multiprovider
+  CLI wrapper such as Hermes or OpenCode
+- keep the demo intentionally simple so failures mean integration bugs rather
+  than model-capability issues
+- establish a clean Docker Compose based workflow for local iteration
+- prepare for a later self-hosting experiment where Reverb coordinates work on
+  itself
+
+## Success Criteria
+
+The phase is successful when all of the following are true:
+
+1. A throwaway Elixir demo app runs in one container as a production-mode
+   emitter.
+2. A separate Reverb container runs in receiver/coordinator mode.
+3. The emitter sends simple periodic feature requests or fault signals over
+   distributed Erlang and PubSub.
+4. Reverb receives the messages, triages them into tasks, checks out lawful
+   workspaces against an isolated dev clone of the demo app, invokes a coding
+   agent CLI, runs validation commands, and records runs/tasks correctly.
+5. The demo tasks are simple enough that success is attributable to integration
+   correctness rather than frontier-model reasoning skill.
+6. Reverb can be added to an Elixir project with a low-friction installation
+   path, ideally via Igniter-generated config and assets.
+
+## Guiding Constraints
+
+- Do not use Apollo as the test application.
+- Do not spend time debugging ambitious autonomous coding tasks during this
+  phase.
+- Keep the target app and emitted tasks intentionally small and deterministic.
+- Preserve Reverb’s project-agnostic design.
+- Keep the current CLI wrapper modules.
+- Add Hermes support without removing Claude, Codex, or generic CLI support.
+- Treat remote git push/PR flow as optional for this phase.
+
+## Deliverable Overview
+
+This phase should produce:
+
+- a demo emitter app
+- Docker Compose infrastructure for emitter + reverb + Postgres
+- a clear Reverb installation story for existing Elixir apps
+- a Hermes CLI adapter
+- end-to-end test instructions and scripted verification
+- a narrow feature/task corpus for iterative validation
+
+## Workstream 1: Demo Target App
+
+### Objective
+
+Create a minimal Elixir target app whose job is to emit controlled signals and
+serve as the sandbox codebase Reverb modifies.
+
+### Shape
+
+Build a tiny Mix app, not Phoenix, unless HTTP is genuinely needed for a simple
+validation hook.
+
+Suggested structure:
+
+- one supervision tree
+- one emitter loop process
+- one small feature module under active development
+- one test file covering the active feature module
+
+Suggested example app name:
+
+- `reverb_demo_app`
+
+### Behavior
+
+The demo app should:
+
+- hold a hardcoded list of very small feature requests or defects
+- emit one item on a timer every few minutes, or on a shorter interval in dev
+  mode for faster iteration
+- send them as `Reverb.emit(:manual, ...)` or `Reverb.emit(:warning, ...)`
+- include structured metadata for subject, requested change, and validation hint
+
+### Feature Corpus
+
+Use tasks that are easy to implement and easy to verify. Examples:
+
+- add `MathFeature.double/1`
+- add `StringFeature.reverse_words/1`
+- add `ListFeature.sum_even/1`
+- add a missing `@spec`
+- add a missing unit test for a stubbed function
+- implement a simple pure function with exact expected outputs
+- replace a placeholder return like `:not_implemented`
+
+Avoid:
+
+- database features
+- distributed logic inside the demo app
+- LiveView or browser work
+- large refactors
+- tasks requiring external APIs
+
+### Recommended code layout
+
+- `lib/reverb_demo_app/application.ex`
+- `lib/reverb_demo_app/emitter.ex`
+- `lib/reverb_demo_app/feature_backlog.ex`
+- `lib/reverb_demo_app/simple_features.ex`
+- `test/reverb_demo_app/simple_features_test.exs`
+
+### Emission strategy
+
+The emitter should draw from a hardcoded list of items shaped like:
+
+```elixir
+%{
+  id: "demo-double",
+  subject: "simple_features.double/1",
+  body: "Implement double/1 so it returns n * 2 and add tests.",
+  validation: ["mix test test/reverb_demo_app/simple_features_test.exs"]
+}
+```
+
+The emitted Reverb metadata should include:
+
+- `subject`
+- `feature_id`
+- `validation_commands`
+- `expected_files`
+- `difficulty: "trivial"`
+
+## Workstream 2: Compose-Based E2E Environment
+
+### Objective
+
+Run the loop in a realistic but disposable environment:
+
+- one container for the prod-style emitter app
+- one container for Reverb as receiver/coordinator
+- one Postgres container for Reverb state
+
+### Compose topology
+
+Services:
+
+- `demo-prod`
+- `reverb-db`
+- `reverb`
+
+Optional later:
+
+- `demo-dev-shell` if a separate mutable app container is needed
+
+### Network
+
+Use one shared Docker network with:
+
+- distributed Erlang node names
+- a shared cookie
+- fixed or documented distribution port range
+
+### Volumes
+
+Use persistent named volumes for:
+
+- Reverb Postgres data
+- Reverb workspace root
+- isolated dev clone of the demo app
+- optional CLI auth/config storage
+
+### Container responsibilities
+
+`demo-prod`:
+
+- boot the demo app in emitter mode
+- periodically emit demo tasks
+- expose logs only
+
+`reverb`:
+
+- boot in receiver mode
+- connect to the demo prod node
+- maintain durable task/run state
+- manage workspaces against the isolated dev clone
+- run validation commands inside the dev clone
+
+### Reverb image requirements
+
+The Reverb dev/coordinator image should include:
+
+- Elixir and Erlang
+- git
+- bash/sh
+- the selected coding CLI binary or installation method
+- any runtime needed for validation of the target app
+
+Do not hardwire Apollo-specific assumptions.
+
+### Dev-clone workflow
+
+The Reverb container should operate against a mounted or initialized clone of
+the demo app repository.
+
+Preferred pattern:
+
+- keep an immutable source checkout or image content
+- create worktrees from the isolated clone root
+- never let agents edit the coordinator repo during this phase
+
+## Workstream 3: Installation UX For Existing Elixir Apps
+
+### Objective
+
+Make embedding Reverb in a normal Elixir app low-friction and predictable.
+
+### Igniter support
+
+Add an Igniter-based installer or generator path for host apps.
+
+Potential commands:
+
+- `mix igniter.install reverb`
+- `mix reverb.install`
+- `mix reverb.init`
+
+The installer should be able to:
+
+- add `{:reverb, ...}` to `mix.exs`
+- insert `config :reverb` defaults into `config/config.exs`
+- insert prod emitter defaults into `config/prod.exs`
+- insert runtime overrides into `config/runtime.exs`
+- optionally add Logger/Telemetry handler configuration
+- generate a BEAM shared cookie if one does not exist
+- document node naming expectations
+- generate a starter `docker-compose.reverb.yml` or equivalent local coordinator
+  asset
+- generate a sample `.env.reverb`
+
+### Installer output
+
+For a host app, the generated assets should include:
+
+- emitter config stanzas
+- a cookie file or env var guidance
+- a sample topic hash
+- a coordinator compose file template
+- short README instructions for connecting the app to Reverb
+
+### Safety defaults
+
+Generated defaults should:
+
+- leave remote push disabled
+- leave protected branches configured
+- prefer localhost or explicitly named dev hosts
+- use a unique topic hash per project
+
+## Workstream 4: Agent Strategy And Hermes Integration
+
+### Objective
+
+Make the default coding-agent path easier for users by preferring a
+multiprovider CLI wrapper layer rather than wiring individual inference APIs
+directly into Reverb.
+
+### Direction
+
+Keep the current CLI abstraction modules:
+
+- generic
+- Claude
+- Codex
+
+Add:
+
+- Hermes CLI adapter
+
+Potentially later:
+
+- OpenCode adapter as another preferred default
+
+### Why Hermes
+
+Hermes can centralize:
+
+- provider selection
+- API key handling
+- model routing
+- inference backend specifics
+
+That allows Reverb to focus on:
+
+- task orchestration
+- workspace safety
+- git policy
+- validation and promotion
+
+### Hermes adapter requirements
+
+Add a module such as:
+
+- `lib/reverb/agent/cli/hermes.ex`
+
+It should support:
+
+- non-interactive prompt execution
+- explicit working directory
+- timeout enforcement
+- structured output capture
+- configurable binary path
+- configurable provider/model flags
+
+### Default recommendation
+
+Change the documented default coding-agent path from Claude to Hermes once the
+Hermes adapter is stable.
+
+Do not remove current adapters.
+
+### Config additions
+
+Add config support for:
+
+- `agent_adapter: :hermes`
+- Hermes CLI path
+- provider/model selection
+- API key env passthrough expectations
+
+## Workstream 5: E2E Validation Flow
+
+### Objective
+
+Prove that Reverb can not only execute agent tasks but also validate and sort
+them correctly.
+
+### Initial validation policy
+
+For the demo app, use narrow commands only:
+
+- `mix compile`
+- `mix test test/reverb_demo_app/simple_features_test.exs`
+
+Do not run broad suites initially.
+
+### Reverb task metadata
+
+Allow task metadata to optionally override validation commands so the emitter
+can steer validation for each trivial feature.
+
+### Success path
+
+For each demo task:
+
+1. emitter sends message
+2. receiver stores raw message
+3. triage creates task
+4. scheduler claims task
+5. worker checks out workspace
+6. agent edits trivial feature code
+7. Reverb commits in workspace
+8. Reverb runs validation
+9. task becomes stable on success
+10. optional local branch remains for inspection
+
+### Failure path
+
+If validation fails:
+
+- run should be marked failed
+- task should keep failure output
+- task should be retryable
+- workspace cleanup behavior should be explicit and deterministic
+
+## Workstream 6: Steering And Observability For The Demo Phase
+
+### Objective
+
+Add enough visibility that the Compose demo is inspectable without digging into
+the database manually.
+
+### Minimum v1 steering surface
+
+Before building a full web UI, make sure these are available:
+
+- `Reverb.status/0`
+- `Reverb.agents_status/0`
+- `Reverb.tasks/1`
+- `Reverb.runs/1`
+- runtime event stream over local PubSub
+
+### Immediate next operator tool
+
+Prefer a tiny localhost HTTP/JSON surface next, with:
+
+- `GET /health`
+- `GET /api/status`
+- `GET /api/tasks`
+- `GET /api/runs`
+- `POST /api/scheduler/pause`
+- `POST /api/scheduler/resume`
+
+This does not need to block the Compose demo if shell inspection is enough.
+
+## Workstream 7: Test Matrix
+
+### Automated tests in this repo
+
+Keep and extend:
+
+- unit tests for claims
+- path safety
+- task/run transitions
+- git branch guardrails
+- validation command handling
+- loop scheduling behavior
+
+Add later:
+
+- Hermes adapter tests
+- workspace pool tests
+- remote promotion tests with mocked `gh`
+- igniter installer tests
+
+### End-to-end tests
+
+Create a demo walkthrough that verifies:
+
+- node connectivity
+- message emission
+- task creation
+- run creation
+- workspace creation
+- agent invocation
+- validation success
+- task stabilization
+
+### Acceptance script
+
+Add a script or checklist that:
+
+- boots the compose stack
+- waits for initial emission
+- inspects Reverb status
+- confirms a trivial feature was implemented in the isolated dev clone
+- confirms validation passed
+
+## Workstream 8: Self-Hosting Follow-Up
+
+### Objective
+
+After the demo app succeeds, use Reverb as a target for Reverb itself.
+
+### Why later
+
+Self-hosting is valuable, but only after:
+
+- workspaces are trustworthy
+- branch safety is proven
+- validation hooks are stable
+- steering is minimally usable
+
+### Recommended sequence
+
+1. complete trivial demo app loop
+2. complete install UX for external apps
+3. stabilize Hermes/default agent path
+4. add minimal steering HTTP API
+5. then attempt Reverb-on-Reverb in a sandboxed clone
+
+## Implementation Sequence
+
+### Phase A: Demo App
+
+- scaffold `reverb_demo_app`
+- hardcode trivial feature backlog
+- emit signals on a timer
+- add narrow tests and validation hooks
+
+### Phase B: Compose Environment
+
+- add `docker-compose.demo.yml`
+- add Reverb dev Dockerfile
+- add demo app Dockerfile
+- establish node naming, cookie, network, and volume conventions
+
+### Phase C: Hermes Adapter
+
+- add `Reverb.Agent.CLI.Hermes`
+- add config and docs
+- switch docs to recommend Hermes as the default adapter
+
+### Phase D: Install UX
+
+- design Igniter installer
+- generate config, cookie, env, and compose scaffolding for host apps
+- add installer docs
+
+### Phase E: Full Demo Verification
+
+- boot compose stack
+- verify emitter -> receiver flow
+- verify trivial autonomous implementation loop
+- document operator commands and expected state transitions
+
+### Phase F: Steering Surface
+
+- add minimal localhost JSON/health endpoints
+- expose task/run/runtime status cleanly
+
+## Explicit Defaults For This Phase
+
+- default demo target is a throwaway Elixir app, not Apollo
+- default autonomous tasks are trivial pure-function changes
+- default remote push/PR is disabled
+- default coding-agent direction moves toward Hermes
+- default coordinator promotion remains local-branch-first
+- default environment for iteration is Docker Compose
+
+## Open Implementation Notes
+
+- If Hermes proves awkward as a CLI boundary, OpenCode remains a valid fallback
+  preferred default.
+- The demo should optimize for debugging Reverb, not showcasing model depth.
+- The demo emitter can start with short intervals like 10-30 seconds for local
+  iteration, then increase later.
+- The demo app should include a fixed list of tasks rather than randomly
+  inventing them.
+- Reverb should eventually consume structured validation hints from task
+  metadata rather than only from static config.
+
+## Definition Of Done
+
+This phase is done when:
+
+- a new user can clone Reverb, boot the Compose demo, and watch tasks flow from
+  a tiny BEAM emitter into Reverb
+- Reverb can implement and validate at least one trivial feature end to end in
+  the isolated dev clone
+- Hermes support exists and is documented as the preferred default path
+- the repo contains a concrete plan and initial scaffolding for Igniter-based
+  installation into third-party Elixir apps
+- the system is positioned for a later Reverb-on-Reverb self-hosting test

@@ -27,17 +27,33 @@ defmodule Reverb.Application do
         []
       end
 
-    pubsub_child ++ [Reverb.Repo]
+    pubsub_child ++ common_children()
   end
 
   defp base_children(_) do
-    # In test, always start Repo for sandbox/migration support
-    if repo_configured?(), do: [Reverb.Repo], else: []
+    common_children()
+  end
+
+  defp common_children do
+    repo_children = if repo_configured?(), do: [Reverb.Repo], else: []
+
+    [
+      {Phoenix.PubSub, name: Reverb.LocalPubSub},
+      Reverb.Runtime,
+      Reverb.Claims
+    ] ++ repo_children
   end
 
   defp repo_configured? do
-    Application.get_env(:reverb, Reverb.Repo) != nil and
-      Application.get_env(:reverb, Reverb.Repo)[:pool] != nil
+    case Application.get_env(:reverb, Reverb.Repo) do
+      nil ->
+        false
+
+      config ->
+        Keyword.keyword?(config) and
+          (not is_nil(config[:pool]) or not is_nil(config[:pool_size]) or not is_nil(config[:url]) or
+             not is_nil(config[:database]))
+    end
   end
 
   defp mode_children(:emitter) do
@@ -60,7 +76,9 @@ defmodule Reverb.Application do
 
     receiver_children = [
       Reverb.Receiver.Guard,
-      Reverb.Receiver.Listener
+      Reverb.Receiver.Listener,
+      Reverb.Workspaces.Pool,
+      {Task.Supervisor, name: Reverb.Agent.TaskSupervisor}
     ]
 
     agent_children =

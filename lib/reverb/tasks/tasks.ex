@@ -12,6 +12,11 @@ defmodule Reverb.Tasks do
 
   def status_values, do: Task.status_values()
   def severity_values, do: Task.severity_values()
+  def state_values, do: Task.state_values()
+
+  def subject_for(%Task{} = task) do
+    task.subject || task.fingerprint || "task:#{task.id}"
+  end
 
   @doc "Creates a new task."
   def create_task(attrs) when is_map(attrs) do
@@ -46,11 +51,26 @@ defmodule Reverb.Tasks do
     end
   end
 
+  @doc "Lists tasks currently eligible for scheduling."
+  def list_eligible(opts \\ []) do
+    limit = Keyword.get(opts, :limit, 10)
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+
+    Task
+    |> where([t], t.status in [:new, :todo, :worked_on])
+    |> where([t], t.state in [:pending, :failed])
+    |> where([t], is_nil(t.lease_expires_at) or t.lease_expires_at < ^now)
+    |> order_by([t], asc: t.priority, desc: t.severity, asc: t.inserted_at)
+    |> limit(^limit)
+    |> Repo.all()
+  end
+
   @doc "Lists recent tasks."
   def list_recent(opts \\ []) do
     since_minutes = Keyword.get(opts, :since_minutes)
     limit = Keyword.get(opts, :limit, 50)
     status = Keyword.get(opts, :status)
+    state = Keyword.get(opts, :state)
 
     base =
       Task
@@ -68,6 +88,13 @@ defmodule Reverb.Tasks do
     base =
       if status && status in Task.status_values() do
         from(t in base, where: t.status == ^status)
+      else
+        base
+      end
+
+    base =
+      if state && state in Task.state_values() do
+        from(t in base, where: t.state == ^state)
       else
         base
       end
@@ -95,6 +122,83 @@ defmodule Reverb.Tasks do
   end
 
   def update_status(_, _), do: {:error, :invalid_status}
+
+  @doc "Claims a task for an agent lease."
+  def claim_task(%Task{} = task, attrs \\ %{}) do
+    now = DateTime.utc_now()
+
+    lease_ms =
+      Application.get_env(:reverb, Reverb.Scheduler, []) |> Keyword.get(:lease_ms, 300_000)
+
+    expires_at = DateTime.add(now, div(lease_ms, 1000), :second)
+
+    attrs =
+      attrs
+      |> normalize_attrs()
+      |> Map.merge(%{
+        "state" => :claimed,
+        "lease_expires_at" => expires_at,
+        "attempt_count" => task.attempt_count + 1
+      })
+
+    update_task(task, attrs)
+  end
+
+  @doc "Marks a task as running."
+  def mark_running(%Task{} = task, attrs \\ %{}) do
+    update_task(task, Map.merge(normalize_attrs(attrs), %{"state" => :running}))
+  end
+
+  @doc "Marks a task as validating."
+  def mark_validating(%Task{} = task, attrs \\ %{}) do
+    update_task(
+      task,
+      Map.merge(normalize_attrs(attrs), %{"state" => :validating, "validation_status" => :running})
+    )
+  end
+
+  @doc "Marks a task as stable and done."
+  def mark_stable(%Task{} = task, attrs \\ %{}) do
+    update_task(
+      task,
+      Map.merge(normalize_attrs(attrs), %{
+        "state" => :stable,
+        "status" => :done,
+        "validation_status" => :passed,
+        "lease_expires_at" => nil
+      })
+    )
+  end
+
+  @doc "Marks a task as failed."
+  def mark_failed(%Task{} = task, reason, attrs \\ %{}) do
+    update_task(
+      task,
+      Map.merge(normalize_attrs(attrs), %{
+        "state" => :failed,
+        "validation_status" => :failed,
+        "last_error" => to_string(reason),
+        "lease_expires_at" => nil
+      })
+    )
+  end
+
+  @doc "Resets a task for retry."
+  def reset_for_retry(%Task{} = task) do
+    update_task(task, %{
+      state: :pending,
+      validation_status: :pending,
+      lease_expires_at: nil,
+      assigned_agent: nil,
+      current_run_id: nil,
+      workspace_path: nil
+    })
+  end
+
+  @doc "Cancels a task."
+  def cancel_task(%Task{} = task) do
+    update_task(task, %{state: :cancelled, lease_expires_at: nil, assigned_agent: nil})
+  end
 
   @doc "Gets a single task by id."
   def get_task(id) do

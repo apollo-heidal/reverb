@@ -60,7 +60,10 @@ defmodule Reverb.Emitter.LoggerHandler do
 
   defp format_message({:string, msg}), do: to_string(msg)
   defp format_message({:report, report}), do: inspect(report, limit: 500)
-  defp format_message({format, args}) when is_list(args), do: :io_lib.format(format, args) |> to_string()
+
+  defp format_message({format, args}) when is_list(args),
+    do: :io_lib.format(format, args) |> to_string()
+
   defp format_message(other), do: inspect(other, limit: 500)
 
   defp extract_source(%{meta: %{mfa: {m, f, a}}}), do: "#{inspect(m)}.#{f}/#{a}"

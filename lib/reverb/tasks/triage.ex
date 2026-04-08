@@ -34,6 +34,7 @@ defmodule Reverb.Tasks.Triage do
 
   defp do_process(%Message{} = message) do
     fingerprint = Message.fingerprint(message)
+    metadata = build_metadata(message)
 
     # Store raw message if configured
     if store_raw?() do
@@ -45,17 +46,34 @@ defmodule Reverb.Tasks.Triage do
       body: message.message,
       category: to_string(message.kind),
       source_id: if(message.node, do: to_string(message.node)),
+      source_kind: metadata["source_kind"] || "signal",
+      subject: metadata["subject"],
+      priority: metadata["priority"] || priority_for(message.severity),
       severity: message.severity,
-      metadata: build_metadata(message)
+      metadata: metadata
     }
 
     case Tasks.upsert_by_fingerprint(fingerprint, attrs) do
       {:ok, task} ->
         Logger.debug("[Reverb.Triage] Task #{task.id} (fingerprint: #{fingerprint})")
+
+        Reverb.Runtime.record_event(:task_triaged, %{
+          task_id: task.id,
+          fingerprint: fingerprint,
+          category: task.category,
+          severity: task.severity
+        })
+
         {:ok, task}
 
       {:error, reason} ->
         Logger.warning("[Reverb.Triage] Failed to create task: #{inspect(reason)}")
+
+        Reverb.Runtime.record_event(:triage_failed, %{
+          fingerprint: fingerprint,
+          reason: inspect(reason)
+        })
+
         {:error, reason}
     end
   end
@@ -95,4 +113,9 @@ defmodule Reverb.Tasks.Triage do
     Application.get_env(:reverb, Reverb.Receiver, [])
     |> Keyword.get(:store_raw_messages, true)
   end
+
+  defp priority_for(:critical), do: 0
+  defp priority_for(:high), do: 25
+  defp priority_for(:medium), do: 50
+  defp priority_for(:low), do: 75
 end

@@ -60,7 +60,10 @@ defmodule Reverb.Receiver.Listener do
             {:noreply, %{state | connected: true}}
 
           false ->
-            Logger.warning("[Reverb.Listener] Failed to connect to #{prod_node}, retrying in #{state.reconnect_interval_ms}ms")
+            Logger.warning(
+              "[Reverb.Listener] Failed to connect to #{prod_node}, retrying in #{state.reconnect_interval_ms}ms"
+            )
+
             ref = Process.send_after(self(), :connect, state.reconnect_interval_ms)
             {:noreply, %{state | connected: false, reconnect_ref: ref}}
 
@@ -88,6 +91,13 @@ defmodule Reverb.Receiver.Listener do
   # Receive Reverb messages from PubSub
   def handle_info({:reverb_message, message}, state) do
     Logger.debug("[Reverb.Listener] Received message: #{String.slice(message.message, 0, 80)}")
+
+    Reverb.Runtime.record_event(:message_received, %{
+      kind: message.kind,
+      source: message.source,
+      severity: message.severity,
+      fingerprint: Reverb.Message.fingerprint(message)
+    })
 
     # Triage asynchronously to avoid blocking the listener
     Task.start(fn -> Triage.process(message) end)

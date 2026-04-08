@@ -26,10 +26,22 @@ defmodule Reverb.Tasks.TaskTest do
           "body" => "task",
           "category" => "error",
           "source_id" => "prod@server",
+          "source_kind" => "signal",
+          "subject" => "payments.checkout",
           "fingerprint" => "abc123",
           "error_count" => 5,
+          "attempt_count" => 1,
+          "priority" => 10,
           "severity" => "high",
           "status" => "todo",
+          "state" => "running",
+          "validation_status" => "running",
+          "remote_status" => "push_pending",
+          "assigned_agent" => "agent-1",
+          "branch_name" => "reverb/task-123",
+          "workspace_path" => "/tmp/reverb/task-123",
+          "steering_notes" => "focus on coverage",
+          "last_error" => "last failure",
           "done_note" => "fixed",
           "metadata" => %{"key" => "val"}
         })
@@ -47,6 +59,21 @@ defmodule Reverb.Tasks.TaskTest do
   describe "severity_values/0" do
     test "returns expected severities" do
       assert Task.severity_values() == [:critical, :high, :medium, :low]
+    end
+  end
+
+  describe "state_values/0" do
+    test "returns coordinator states" do
+      assert Task.state_values() == [
+               :pending,
+               :claimed,
+               :running,
+               :validating,
+               :stable,
+               :failed,
+               :shelved,
+               :cancelled
+             ]
     end
   end
 end

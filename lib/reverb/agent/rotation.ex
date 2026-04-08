@@ -23,7 +23,8 @@ defmodule Reverb.Agent.Rotation do
 
   @doc "Returns the list of rotation tasks."
   def tasks do
-    case Application.get_env(:reverb, Reverb.Agent, []) |> Keyword.get(:rotation_tasks, :default) do
+    case Application.get_env(:reverb, Reverb.Agent, [])
+         |> Keyword.get(:rotation_tasks, :default) do
       :default -> @default_tasks
       custom when is_list(custom) -> custom
     end

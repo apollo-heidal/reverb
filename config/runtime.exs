@@ -1,5 +1,10 @@
 import Config
 
+split_env_list = fn
+  nil -> nil
+  value -> String.split(value, ";;", trim: true)
+end
+
 if config_env() == :prod do
   config :reverb, Reverb.Repo,
     url: System.get_env("REVERB_DATABASE_URL"),
@@ -40,5 +45,65 @@ if config_env() == :prod do
   # Agent: project_root tells Claude CLI where to work
   if project_root = System.get_env("REVERB_PROJECT_ROOT") do
     config :reverb, Reverb.Agent, project_root: project_root
+  end
+
+  agent_overrides =
+    []
+    |> then(fn overrides ->
+      case System.get_env("REVERB_AGENT_ADAPTER") do
+        nil -> overrides
+        value -> Keyword.put(overrides, :agent_adapter, String.to_atom(value))
+      end
+    end)
+    |> then(fn overrides ->
+      case System.get_env("REVERB_AGENT_COMMAND") do
+        nil -> overrides
+        value -> Keyword.put(overrides, :agent_command, value)
+      end
+    end)
+    |> then(fn overrides ->
+      case split_env_list.(System.get_env("REVERB_AGENT_ARGS")) do
+        nil -> overrides
+        value -> Keyword.put(overrides, :agent_args, value)
+      end
+    end)
+    |> then(fn overrides ->
+      case System.get_env("REVERB_AGENT_MAX_AGENTS") do
+        nil -> overrides
+        value -> Keyword.put(overrides, :max_agents, String.to_integer(value))
+      end
+    end)
+
+  if agent_overrides != [] do
+    config :reverb, Reverb.Agent, agent_overrides
+  end
+
+  workspace_overrides =
+    []
+    |> then(fn overrides ->
+      case System.get_env("REVERB_WORKSPACE_ROOT") do
+        nil -> overrides
+        value -> Keyword.put(overrides, :root, value)
+      end
+    end)
+    |> then(fn overrides ->
+      case System.get_env("REVERB_WORKSPACE_REPO_ROOT") do
+        nil -> overrides
+        value -> Keyword.put(overrides, :repo_root, value)
+      end
+    end)
+    |> then(fn overrides ->
+      case System.get_env("REVERB_WORKSPACE_SOURCE_REF") do
+        nil -> overrides
+        value -> Keyword.put(overrides, :source_ref, value)
+      end
+    end)
+
+  if workspace_overrides != [] do
+    config :reverb, Reverb.Workspaces, workspace_overrides
+  end
+
+  if commands = split_env_list.(System.get_env("REVERB_VALIDATION_COMMANDS")) do
+    config :reverb, Reverb.Validation, commands: commands
   end
 end

@@ -3,8 +3,7 @@ import Config
 config :reverb,
   mode: :receiver
 
-config :reverb, Reverb.Agent,
-  enabled: true
+config :reverb, Reverb.Agent, enabled: true
 
 config :reverb, Reverb.Repo,
   database: "reverb_dev",

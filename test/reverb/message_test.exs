@@ -17,7 +17,12 @@ defmodule Reverb.MessageTest do
     end
 
     test "accepts options" do
-      msg = Message.new(:manual, "check this", source: "MyMod.func/2", severity: :low, metadata: %{foo: "bar"})
+      msg =
+        Message.new(:manual, "check this",
+          source: "MyMod.func/2",
+          severity: :low,
+          metadata: %{foo: "bar"}
+        )
 
       assert msg.kind == :manual
       assert msg.source == "MyMod.func/2"
